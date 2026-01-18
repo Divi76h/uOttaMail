@@ -60,13 +60,14 @@ def assign_priority(email: Dict[str, Any]) -> Dict[str, str]:
     t = _text(email)
 
     if any(re.search(p, t) for p in URGENT_KEYWORDS):
-        return {"priority": "urgent", "reason": "Contains urgency keywords."}
+        return {"priority": "urgent", "reason": "Contains urgency keywords (asap, urgent, immediate)."}
 
-    # Simple date-like signal
-    if re.search(r"\b(today|tomorrow|eod|end of day)\b", t):
-        return {"priority": "urgent", "reason": "Mentions a near-term time constraint."}
+    # High priority: deadlines
+    if re.search(r"\b(today|tomorrow|eod|end of day|deadline)\b", t):
+        return {"priority": "high", "reason": "Mentions near-term deadlines."}
 
+    # Low priority
     if any(re.search(p, t) for p in LOW_KEYWORDS):
-        return {"priority": "low", "reason": "Marked as FYI / no action required."}
+        return {"priority": "low", "reason": "Marked as FYI or no action required."}
 
-    return {"priority": "normal", "reason": "No urgency or low-priority signals."}
+    return {"priority": "medium", "reason": "Standard priority."}

@@ -20,25 +20,17 @@ apps:
       supports_streaming: true
       agent_name: "EmailToneAnalyzer"
       display_name: "Email Tone Analyzer"
-      model: *general_model
+      model:
+        <<: *general_model
+        max_tokens: 300
 
       instruction: |
-        You are the Email Tone Analyzer Agent. Your task is to analyze the tone of an email or passage of text and determine the primary emotion it conveys.
+        Analyze the email's emotional tone. Return JSON only, no markdown.
 
-        Analyze the provided text for emotional tone. Consider factors such as:
-        - Word choice and sentiment
-        - Punctuation and capitalization
-        - Overall sentiment (positive, negative, neutral)
-        - Specific emotions like happiness, anger, sadness, excitement, frustration, etc.
+        Pick one emotion: happy, sad, angry, excited, frustrated, neutral, anxious, grateful, disappointed, enthusiastic, sarcastic, professional, urgent, apologetic.
 
-        Return your analysis in the following format:
-        - Primary Emotion: [emotion name]
-        - Confidence: [high/medium/low]
-        - Brief Explanation: [short reason]
-
-        Emotions to choose from: happy, sad, angry, excited, frustrated, neutral, anxious, grateful, disappointed, enthusiastic, sarcastic, professional, urgent, apologetic, congratulatory.
-
-        If the text is neutral or lacks clear emotion, classify as "neutral".
+        Response format (keep explanation under 20 words):
+        {"primary_emotion": "emotion", "confidence": "high|medium|low", "explanation": "brief reason"}
 
       inject_system_purpose: true
       inject_response_format: true

@@ -1,0 +1,111 @@
+log:
+  stdout_log_level: INFO
+
+!include ../shared_config.yaml
+
+# =============================================================================
+# URL SECURITY SCANNER AGENT
+# =============================================================================
+# This agent scans URLs for malware, phishing, and security threats using
+# VirusTotal's database of 70+ antivirus engines.
+#
+# SETUP:
+#   1. Get a free VirusTotal API key: https://www.virustotal.com/gui/join-us
+#   2. Add to your .env file: VIRUSTOTAL_API_KEY=your_key_here
+#
+# Example usage:
+#   "Is this URL safe? https://example.com/download"
+#   "Check if this link has viruses: https://suspicious-site.xyz"
+#   "Scan this URL for malware: https://some-website.com"
+# =============================================================================
+
+apps:
+  - name: url-scanner_app
+    app_base_path: .
+    app_module: solace_agent_mesh.agent.sac.app
+
+    broker:
+      <<: *broker_connection
+
+    app_config:
+      namespace: ${NAMESPACE, sam/}
+      supports_streaming: true
+      agent_name: "URLScanner"
+      display_name: "URL Security Scanner"
+      model: *general_model
+
+      instruction: |
+        You are a cybersecurity expert that scans URLs extracted from emails for malware, phishing, and security threats.
+
+        When given an email, extract ALL URLs from the subject and body, then scan them using:
+        1. analyze_url_structure - Quick local checks for phishing patterns
+        2. scan_url_virustotal - Comprehensive VirusTotal scan (70+ engines)
+
+        CRITICAL - Response Format:
+        Return ONLY valid JSON. No markdown, no code fences, no explanations.
+        
+        JSON Structure:
+        {
+          "verdict": "SAFE" | "SUSPICIOUS" | "DANGEROUS",
+          "threat_level": "LOW" | "MEDIUM" | "HIGH",
+          "malicious_count": <number>,
+          "suspicious_count": <number>,
+          "total_engines": <number>,
+          "urls_scanned": <number>,
+          "summary": "Brief description of findings",
+          "details": "Key warnings or all-clear message",
+          "virustotal_link": "https://..."
+        }
+
+        Rules:
+        - If NO URLs found in email: {"verdict":"SAFE","threat_level":"LOW","summary":"No URLs detected",...}
+        - If ANY URL is DANGEROUS: verdict=DANGEROUS, threat_level=HIGH
+        - If ANY URL is SUSPICIOUS: verdict=SUSPICIOUS, threat_level=MEDIUM
+        - Use EXACT values from tools, never guess
+        - Keep summary under 100 chars
+        - Keep details under 200 chars
+
+      session_service:
+        type: ${PERSISTENCE_TYPE, memory}
+        database_url: ${CUSTOM_AGENT_DATABASE_URL,}
+
+      artifact_service: *default_artifact_service
+
+      agent_card:
+        description: >
+          URL Security Scanner Agent - Checks URLs for malware, phishing, viruses, 
+          and security threats using VirusTotal's database of 70+ antivirus engines.
+          Use this agent when the user asks "Is this URL safe?", "Check this link 
+          for viruses", "Scan this URL for malware", "Is this website legitimate?",
+          or needs to verify if a link is dangerous before clicking.
+        defaultInputModes: ["text"]
+        defaultOutputModes: ["text"]
+        skills:
+          - id: "url_scan"
+            name: "URL Security Scan"
+            description: "Scan URLs for malware and phishing threats"
+
+      agent_card_publishing:
+        interval_seconds: 10
+
+      agent_discovery:
+        enabled: true
+
+      inter_agent_communication:
+        allow_list: ["OrchestratorAgent"]
+        request_timeout_seconds: 60
+
+      tools:
+        # VirusTotal URL Scanner (requires API key)
+        - tool_type: python
+          component_module: "src.inbox_agents.url_scanner_tools"
+          component_base_path: .
+          function_name: "scan_url_virustotal"
+          tool_config:
+            virustotal_api_key: ${VIRUSTOTAL_API_KEY,}
+
+        # Quick structural analysis (no API key needed)
+        - tool_type: python
+          component_module: "src.inbox_agents.url_scanner_tools"
+          component_base_path: .
+          function_name: "analyze_url_structure"

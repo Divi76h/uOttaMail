@@ -20,25 +20,24 @@ apps:
       instruction: |
         You are the PriorityAgent.
         Input is a JSON payload describing an email.
-        Assign a priority: urgent, normal, or low.
+        Assign a priority: urgent, high, medium, or low.
 
-        Use the tool assign_priority.
+        Analyze the email content, sender, and tone to determine the priority.
+        - Urgent: Immediate action required, time-critical, or from VIPs.
+        - High: Important deadlines, boss/manager requests, or significant issues.
+        - Medium: Standard business communication, regular updates, or non-critical requests.
+        - Low: FYI, newsletters, casual chatter, or no action needed.
+
         Respond with JSON only, Return ONLY raw JSON. No markdown, no code fences.
-        {"priority": "urgent|normal|low", "reason": "..."}
-      tools:
-        - tool_type: python
-          component_module: "inbox_agents.rules"
-          component_base_path: ./src
-          function_name: "assign_priority"
-          tool_name: "assign_priority"
+        {"priority": "urgent|high|medium|low", "reason": "Short explanation of why"}
       agent_card:
-        description: "Assigns urgency to emails."
+        description: "Assigns urgency to emails using GenAI analysis."
         defaultInputModes: ["text"]
         defaultOutputModes: ["text"]
         skills:
           - id: "assign_priority"
             name: "Priority Assignment"
-            description: "Set an email's priority to urgent/normal/low."
+            description: "Set an email's priority to urgent/high/medium/low based on semantic analysis."
       agent_card_publishing: { interval_seconds: 10 }
       agent_discovery: { enabled: false }
       inter_agent_communication:

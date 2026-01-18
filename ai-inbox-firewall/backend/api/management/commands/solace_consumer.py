@@ -16,7 +16,43 @@ EVENT_TYPE_MAP = {
     "priority_assigned": "email.priority_assigned",
     "summary": "email.summary",
     "action_items": "email.action_items",
+    "tone_analyzed": "email.tone_analyzed",
+    "url_scanned": "email.url_scanned",
+    "chat_response": "email.chat_response",
 }
+
+
+def _handle_chat_response(msg, redis_client):
+    """Handle chat response messages and push to Redis for SSE delivery."""
+    # Topic format: email/chat_response/{user_id}/{request_id}
+    parts = [p for p in (msg.topic or "").split("/") if p]
+    if len(parts) < 4:
+        print(f"[CHAT] Invalid topic format: {msg.topic}")
+        return
+    
+    user_id = _extract_int(parts[2])
+    request_id = parts[3]
+    
+    if not user_id:
+        print(f"[CHAT] Could not extract user_id from: {parts[2]}")
+        return
+    
+    # Decode the response
+    try:
+        response_text = msg.payload.decode("utf-8")
+    except Exception:
+        response_text = msg.payload.decode("utf-8", errors="ignore")
+    
+    print(f"[CHAT] Got response for user {user_id}, request {request_id}: {response_text[:100]}...")
+    
+    # Push to Redis for SSE
+    channel = f"events:{user_id}"
+    event_payload = {
+        "event_type": "email.chat_response",
+        "request_id": request_id,
+        "response": response_text,
+    }
+    redis_client.publish(channel, json.dumps(event_payload, ensure_ascii=False))
 
 
 def _extract_int(s: str) -> int | None:
@@ -143,14 +179,22 @@ class Command(BaseCommand):
         def on_connect(c, userdata, flags, rc, properties=None):
             self.stdout.write(self.style.SUCCESS(f"Connected to MQTT broker rc={rc}"))
             # Subscribe to all processed events
-            for ev in ["spam_classified", "priority_assigned", "summary", "action_items"]:
-                c.subscribe(f"{prefix}/{ev}/#", qos=0)
+            for ev in ["spam_classified", "priority_assigned", "summary", "action_items", "tone_analyzed", "url_scanned", "chat_response"]:
+                topic = f"{prefix}/{ev}/#"
+                c.subscribe(topic, qos=0)
+                print(f"[SUBSCRIBE] Subscribed to: {topic}")
 
         def on_disconnect(c, userdata, rc, properties=None):
             self.stdout.write(self.style.WARNING(f"Disconnected rc={rc} (will auto-reconnect)"))
 
         def on_message(c, userdata, msg):
-            print("Received message:", msg)
+            print(f"Received message on topic: {msg.topic}")
+            
+            # Handle chat responses separately (they use request_id not email_id)
+            if "/chat_response/" in msg.topic:
+                _handle_chat_response(msg, r)
+                return
+            
             meta = _parse_topic(msg.topic)
             if not meta:
                 return
@@ -188,6 +232,65 @@ class Command(BaseCommand):
                     except Exception:
                         pass
                 email.action_items = items
+            elif ev == "tone_analyzed":
+                print(f"[TONE DEBUG] Raw payload: {payload}")
+                print(f"[TONE DEBUG] Payload type: {type(payload)}")
+                # Handle case where payload is {'raw': '```json...```'}
+                if isinstance(payload, dict) and "raw" in payload:
+                    raw_text = payload["raw"]
+                    payload = _try_parse_json_from_text(raw_text)
+                    print(f"[TONE DEBUG] Parsed from raw: {payload}")
+                    # If still got raw back, try regex extraction for truncated JSON
+                    if isinstance(payload, dict) and "raw" in payload:
+                        import re
+                        text = payload["raw"]
+                        # Extract primary_emotion
+                        match = re.search(r'"primary_emotion"\s*:\s*"([^"]+)"', text)
+                        if match:
+                            payload["primary_emotion"] = match.group(1)
+                        # Extract confidence
+                        match = re.search(r'"confidence"\s*:\s*"([^"]+)"', text)
+                        if match:
+                            payload["confidence"] = match.group(1)
+                        # Extract explanation (may be truncated)
+                        match = re.search(r'"explanation"\s*:\s*"([^"]*)', text)
+                        if match:
+                            payload["explanation"] = match.group(1).rstrip('\\')
+                        print(f"[TONE DEBUG] Regex extracted: {payload}")
+                email.tone_emotion = payload.get("primary_emotion") or payload.get("emotion")
+                email.tone_confidence = payload.get("confidence")
+                email.tone_explanation = payload.get("explanation") or payload.get("brief_explanation")
+                print(f"[TONE DEBUG] Extracted: emotion={email.tone_emotion}, confidence={email.tone_confidence}")
+            elif ev == "url_scanned":
+                # Handle case where payload is {'raw': '```json...```'}
+                if isinstance(payload, dict) and "raw" in payload:
+                    raw_text = payload["raw"]
+                    payload = _try_parse_json_from_text(raw_text)
+                    # If still got raw back, try regex extraction for truncated JSON
+                    if isinstance(payload, dict) and "raw" in payload:
+                        import re
+                        text = payload["raw"]
+                        # Extract verdict
+                        match = re.search(r'"verdict"\s*:\s*"([^"]+)"', text)
+                        if match:
+                            payload["verdict"] = match.group(1)
+                        # Extract threat_level
+                        match = re.search(r'"threat_level"\s*:\s*"([^"]+)"', text)
+                        if match:
+                            payload["threat_level"] = match.group(1)
+                        # Extract counts
+                        match = re.search(r'"malicious_count"\s*:\s*(\d+)', text)
+                        if match:
+                            payload["malicious_count"] = int(match.group(1))
+                        match = re.search(r'"suspicious_count"\s*:\s*(\d+)', text)
+                        if match:
+                            payload["suspicious_count"] = int(match.group(1))
+                email.url_scan_verdict = payload.get("verdict")
+                email.url_scan_threat_level = payload.get("threat_level")
+                email.url_scan_malicious_count = payload.get("malicious_count")
+                email.url_scan_suspicious_count = payload.get("suspicious_count")
+                email.url_scan_summary = payload.get("summary")
+                email.url_scan_details = payload.get("details")
 
             email.save()
 

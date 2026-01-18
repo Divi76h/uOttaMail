@@ -1,10 +1,12 @@
 import json
 import time
+import uuid
 from typing import Iterable
 
 import redis
 from django.conf import settings
 from django.contrib.auth import get_user_model
+from django.db.models import Q
 from django.http import HttpResponse, JsonResponse, StreamingHttpResponse
 from rest_framework.decorators import api_view, permission_classes
 from rest_framework.permissions import AllowAny
@@ -79,6 +81,140 @@ def email_detail(request, email_id: int):
         return Response(EmailSerializer(email).data)
 
     return Response(EmailSerializer(email).data)
+
+
+@api_view(['GET'])
+def action_items(request):
+    """Get all action items across all emails for the current user."""
+    emails_qs = Email.objects.filter(owner=request.user).exclude(action_items__isnull=True)
+    
+    all_items = []
+    for email in emails_qs:
+        items = email.action_items
+        if not isinstance(items, list):
+            continue
+        for idx, item in enumerate(items):
+            if isinstance(item, dict):
+                all_items.append({
+                    'email_id': email.id,
+                    'email_subject': email.subject,
+                    'sender_username': email.sender.username if email.sender else None,
+                    'index': idx,
+                    'text': item.get('text', ''),
+                    'due': item.get('due'),
+                    'assignee': item.get('assignee'),
+                    'done': item.get('done', False),
+                })
+    
+    return Response(all_items)
+
+
+@api_view(['PATCH'])
+def action_item_toggle(request, email_id: int, item_index: int):
+    """Toggle the done status of an action item."""
+    try:
+        email = Email.objects.get(id=email_id, owner=request.user)
+    except Email.DoesNotExist:
+        return Response({'detail': 'Email not found'}, status=status.HTTP_404_NOT_FOUND)
+    
+    items = email.action_items
+    if not isinstance(items, list) or item_index >= len(items):
+        return Response({'detail': 'Action item not found'}, status=status.HTTP_404_NOT_FOUND)
+    
+    item = items[item_index]
+    if isinstance(item, dict):
+        item['done'] = not item.get('done', False)
+        email.action_items = items
+        email.save(update_fields=['action_items'])
+    
+    return Response({'done': item.get('done', False), 'email_id': email_id, 'index': item_index})
+
+
+@api_view(['GET'])
+def search_emails(request):
+    """Search emails by text query (subject, body, sender, summary, action items).
+    Also searches for individual words > 3 characters."""
+    query = request.GET.get('q', '').strip()
+    
+    if not query:
+        return Response([])
+    
+    # Build list of search terms: full query + individual words > 3 chars
+    search_terms = [query]
+    words = query.split()
+    for word in words:
+        word = word.strip()
+        if len(word) > 3 and word not in search_terms:
+            search_terms.append(word)
+    
+    # Build filter using Q objects for OR matching across multiple fields and terms
+    combined_q = Q()
+    for term in search_terms:
+        combined_q |= (
+            Q(subject__icontains=term) |
+            Q(body__icontains=term) |
+            Q(sender__username__icontains=term) |
+            Q(summary__icontains=term) |
+            Q(spam_reason__icontains=term) |
+            Q(priority_reason__icontains=term) |
+            Q(tone_explanation__icontains=term)
+        )
+    
+    emails_qs = Email.objects.filter(owner=request.user).filter(combined_q).distinct().order_by('-created_at')[:50]
+    
+    return Response(EmailSerializer(emails_qs, many=True).data)
+
+
+@api_view(['POST'])
+def chat_query(request):
+    """
+    Send a natural language query to the EmailQueryAgent via Solace.
+    Publishes to email/chat/{user_id}/{request_id} topic.
+    Response comes back via SSE on email.chat_response event.
+    """
+    query = request.data.get('query', '').strip()
+    
+    if not query:
+        return Response({'detail': 'Query is required'}, status=status.HTTP_400_BAD_REQUEST)
+    
+    # Gather email context for the AI agent
+    emails_qs = Email.objects.filter(owner=request.user).order_by('-created_at')[:20]
+    emails_context = []
+    for e in emails_qs:
+        emails_context.append({
+            'id': e.id,
+            'subject': e.subject,
+            'body': e.body[:500],  # Truncate body for context
+            'sender': e.sender.username if e.sender else None,
+            'spam_label': e.spam_label,
+            'priority': e.priority,
+            'summary': e.summary,
+            'tone_emotion': e.tone_emotion,
+            'action_items': e.action_items,
+            'created_at': e.created_at.isoformat(),
+        })
+    
+    # Generate a unique request ID
+    request_id = str(uuid.uuid4())
+    
+    # Prepare payload for SAM agent
+    payload = {
+        'query': query,
+        'emails': emails_context,
+    }
+    
+    # Publish to chat topic - SAM gateway will route to EmailQueryAgent
+    chat_topic = topic('chat', str(request.user.id), request_id)
+    publish_json(chat_topic, payload, qos=0)
+    
+    print(f"[CHAT] Published query to {chat_topic}: {query[:50]}...")
+    
+    # Return immediately - response will come via SSE
+    return Response({
+        'status': 'processing',
+        'request_id': request_id,
+        'message': 'Query sent to AI assistant. Response will appear shortly.',
+    })
 
 
 def _sse_format(event: str, data: dict) -> str:

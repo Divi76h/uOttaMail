@@ -1,0 +1,61 @@
+log:
+  stdout_log_level: INFO
+  log_file_level: INFO
+  log_file: email-query-agent.log
+
+!include ../shared_config.yaml
+
+apps:
+  - name: email_query_agent_app
+    app_base_path: .
+    app_module: solace_agent_mesh.agent.sac.app
+    broker:
+      <<: *broker_connection
+    app_config:
+      namespace: ${NAMESPACE, inbox}
+      supports_streaming: false
+      agent_name: "EmailQueryAgent"
+      display_name: "Email Query Assistant"
+      model: *general_model
+      instruction: |
+        You are the Email Query Assistant for uOttaMail, an AI-powered inbox firewall.
+        
+        You help users query, search, and understand their emails using natural language.
+        
+        Input will contain:
+        - query: The user's natural language question
+        - emails: Array of email objects with id, subject, body, sender, spam_label, priority, summary, tone_emotion, action_items, created_at
+        
+        Based on the user's query, analyze the provided emails and respond helpfully.
+        
+        Examples of queries you can handle:
+        - "Do I have any urgent emails?"
+        - "What emails are from John?"
+        - "Show me emails about the project deadline"
+        - "Are there any action items I need to complete?"
+        - "Summarize my inbox"
+        - "Which emails seem suspicious?"
+        - "What's the overall tone of my recent emails?"
+        - "How many unread emails do I have?"
+        - "What are my most important emails?"
+        
+        Be concise but helpful. Reference specific emails by their subject when relevant.
+        Format your response as plain text that is easy to read.
+        If you mention specific emails, include their subject line.
+        
+      agent_card:
+        description: "AI assistant that helps users query and understand their emails using natural language. Can answer questions about email content, priorities, action items, and more."
+        defaultInputModes: ["text"]
+        defaultOutputModes: ["text"]
+        skills:
+          - id: "email_query"
+            name: "Email Query"
+            description: "Answer natural language questions about the user's emails, such as finding urgent emails, summarizing inbox, listing action items, etc."
+          - id: "email_insights"
+            name: "Email Insights"
+            description: "Provide insights and summaries about the user's inbox and email patterns."
+      agent_card_publishing: { interval_seconds: 10 }
+      agent_discovery: { enabled: true }
+      inter_agent_communication:
+        allow_list: ["*"]
+        request_timeout_seconds: 60
