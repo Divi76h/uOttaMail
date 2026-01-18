@@ -1,0 +1,46 @@
+log:
+  stdout_log_level: INFO
+  log_file_level: INFO
+  log_file: spam-agent.log
+
+!include ../shared_config.yaml
+
+apps:
+  - name: spam_agent_app
+    app_base_path: .
+    app_module: solace_agent_mesh.agent.sac.app
+    broker:
+      <<: *broker_connection
+    app_config:
+      namespace: ${NAMESPACE, inbox}
+      supports_streaming: false
+      agent_name: "SpamAgent"
+      display_name: "Spam"
+      model: *general_model
+      instruction: |
+        You are the SpamAgent.
+        Input is a JSON payload describing an email.
+        Classify the email into one of: spam, newsletter, legitimate.
+
+        Use the tool classify_spam for the classification.
+        Respond with JSON only, Return ONLY raw JSON. No markdown, no code fences.
+        {"spam_label": "spam|newsletter|legitimate", "reason": "..."}
+      tools:
+        - tool_type: python
+          component_module: "inbox_agents.rules"
+          component_base_path: ./src
+          function_name: "classify_spam"
+          tool_name: "classify_spam"
+      agent_card:
+        description: "Classifies emails into spam/newsletter/legitimate."
+        defaultInputModes: ["text"]
+        defaultOutputModes: ["text"]
+        skills:
+          - id: "classify_spam"
+            name: "Spam Classification"
+            description: "Label an email as spam, newsletter, or legitimate."
+      agent_card_publishing: { interval_seconds: 10 }
+      agent_discovery: { enabled: false }
+      inter_agent_communication:
+        allow_list: []
+        request_timeout_seconds: 60

@@ -1,0 +1,95 @@
+services:
+  broker:
+    image: solace/solace-pubsub-standard:latest
+    container_name: solace-broker
+    shm_size: 2g
+    ports:
+      - "8080:8080"   # Broker Manager (SEMP over HTTP)
+      - "55555:55555" # SMF (Solace native)
+      - "8008:8008"   # WebSocket messaging
+      - "1883:1883"   # MQTT (TCP) 
+    environment:
+      - username_admin_globalaccesslevel=admin
+      - username_admin_password=admin
+    restart: unless-stopped
+
+  postgres:
+    image: postgres:16
+    container_name: inbox-postgres
+    environment:
+      - POSTGRES_DB=${POSTGRES_DB:-inbox}
+      - POSTGRES_USER=${POSTGRES_USER:-inbox}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-inbox}
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-inbox} -d ${POSTGRES_DB:-inbox} -h 127.0.0.1 -p 5432"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+
+  redis:
+    image: redis:7-alpine
+    container_name: inbox-redis
+    ports:
+      - "6379:6379"
+    restart: unless-stopped
+
+  backend:
+    build: ./backend
+    container_name: inbox-backend
+    env_file: ./.env
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_started
+      broker:
+        condition: service_started
+    ports:
+      - "8001:8001"
+    command: ["sh", "-lc", "python manage.py wait_for_services && python manage.py migrate && python manage.py runserver 0.0.0.0:8001"]
+
+  consumer:
+    build: ./backend
+    container_name: inbox-consumer
+    env_file: ./.env
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_started
+      broker:
+        condition: service_started
+    command: ["sh", "-lc", "python manage.py wait_for_services && python manage.py solace_consumer"]
+
+  frontend:
+    build: ./frontend
+    container_name: inbox-frontend
+    environment:
+      - VITE_API_BASE=http://localhost:8001
+    depends_on:
+      backend:
+        condition: service_started
+    ports:
+      - "5173:5173"
+    command: ["npm", "run", "dev", "--", "--host", "0.0.0.0", "--port", "5173"]
+
+  sam:
+    user: "0:0"
+    build: ./sam
+    container_name: inbox-sam
+    env_file: ./sam/.env
+    depends_on:
+      broker:
+        condition: service_started
+    volumes:
+      - ./sam:/app
+    working_dir: /app
+    # Image has its own entrypoint
+
+volumes:
+  pgdata:

@@ -1,0 +1,37 @@
+shared_config:
+  - broker_connection: &broker_connection
+      dev_mode: ${SOLACE_DEV_MODE, false}
+      broker_url: ${SOLACE_BROKER_URL, ws://localhost:8008}
+      broker_username: ${SOLACE_BROKER_USERNAME, default}
+      broker_password: ${SOLACE_BROKER_PASSWORD, default}
+      broker_vpn: ${SOLACE_BROKER_VPN, default}
+      temporary_queue: ${USE_TEMPORARY_QUEUES, true}
+
+  - models:
+      planning: &planning_model
+        model: ${LLM_SERVICE_PLANNING_MODEL_NAME}
+        api_base: ${LLM_SERVICE_ENDPOINT}
+        api_key: ${LLM_SERVICE_API_KEY}
+        parallel_tool_calls: true
+        cache_strategy: "5m"
+      general: &general_model
+        model: ${LLM_SERVICE_GENERAL_MODEL_NAME}
+        api_base: ${LLM_SERVICE_ENDPOINT}
+        api_key: ${LLM_SERVICE_API_KEY}
+        cache_strategy: "5m"
+
+  - services:
+      session_service: &default_session_service
+        type: "sql"
+        database_url: "${DATABASE_URL, sqlite:///session.db}"
+        default_behavior: "PERSISTENT"
+
+      artifact_service: &default_artifact_service
+        type: "filesystem"
+        base_path: "/tmp/sam"
+        artifact_scope: namespace
+
+      data_tools_config: &default_data_tools_config
+        sqlite_memory_threshold_mb: 100
+        max_result_preview_rows: 50
+        max_result_preview_bytes: 4096

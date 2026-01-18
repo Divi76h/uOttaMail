@@ -1,0 +1,39 @@
+log:
+  stdout_log_level: INFO
+  log_file_level: INFO
+  log_file: summary-agent.log
+
+!include ../shared_config.yaml
+
+apps:
+  - name: summary_agent_app
+    app_base_path: .
+    app_module: solace_agent_mesh.agent.sac.app
+    broker:
+      <<: *broker_connection
+    app_config:
+      namespace: ${NAMESPACE, inbox}
+      supports_streaming: false
+      agent_name: "SummaryAgent"
+      display_name: "Summary"
+      model: *general_model
+      instruction: |
+        You are the SummaryAgent.
+        Input is a JSON payload describing an email.
+
+        Write a concise summary (1-2 sentences) and 3-5 bullet highlights.
+        Respond with JSON only Return ONLY raw JSON. No markdown, no code fences.
+        {"summary": "...", "highlights": ["...", "..."]}
+      agent_card:
+        description: "Summarizes an email into a short summary and highlights."
+        defaultInputModes: ["text"]
+        defaultOutputModes: ["text"]
+        skills:
+          - id: "summarize_email"
+            name: "Email Summarization"
+            description: "Produce a short summary and key highlights for an email."
+      agent_card_publishing: { interval_seconds: 10 }
+      agent_discovery: { enabled: false }
+      inter_agent_communication:
+        allow_list: []
+        request_timeout_seconds: 60

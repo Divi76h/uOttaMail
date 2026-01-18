@@ -1,0 +1,46 @@
+log:
+  stdout_log_level: INFO
+  log_file_level: INFO
+  log_file: priority-agent.log
+
+!include ../shared_config.yaml
+
+apps:
+  - name: priority_agent_app
+    app_base_path: .
+    app_module: solace_agent_mesh.agent.sac.app
+    broker:
+      <<: *broker_connection
+    app_config:
+      namespace: ${NAMESPACE, inbox}
+      supports_streaming: false
+      agent_name: "PriorityAgent"
+      display_name: "Priority"
+      model: *general_model
+      instruction: |
+        You are the PriorityAgent.
+        Input is a JSON payload describing an email.
+        Assign a priority: urgent, normal, or low.
+
+        Use the tool assign_priority.
+        Respond with JSON only, Return ONLY raw JSON. No markdown, no code fences.
+        {"priority": "urgent|normal|low", "reason": "..."}
+      tools:
+        - tool_type: python
+          component_module: "inbox_agents.rules"
+          component_base_path: ./src
+          function_name: "assign_priority"
+          tool_name: "assign_priority"
+      agent_card:
+        description: "Assigns urgency to emails."
+        defaultInputModes: ["text"]
+        defaultOutputModes: ["text"]
+        skills:
+          - id: "assign_priority"
+            name: "Priority Assignment"
+            description: "Set an email's priority to urgent/normal/low."
+      agent_card_publishing: { interval_seconds: 10 }
+      agent_discovery: { enabled: false }
+      inter_agent_communication:
+        allow_list: []
+        request_timeout_seconds: 60

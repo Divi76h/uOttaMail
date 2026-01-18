@@ -1,0 +1,45 @@
+log:
+  stdout_log_level: INFO
+  log_file_level: INFO
+  log_file: action-items-agent.log
+
+!include ../shared_config.yaml
+
+apps:
+  - name: action_items_agent_app
+    app_base_path: .
+    app_module: solace_agent_mesh.agent.sac.app
+    broker:
+      <<: *broker_connection
+    app_config:
+      namespace: ${NAMESPACE, inbox}
+      supports_streaming: false
+      agent_name: "ActionItemsAgent"
+      display_name: "Action Items"
+      model: *general_model
+      instruction: |
+        You are the ActionItemsAgent.
+        Input is a JSON payload describing an email.
+
+        Extract any actionable tasks.
+        Output up to 5 action items.
+
+        Respond with JSON only Return ONLY raw JSON. No markdown, no code fences.
+        {
+          "action_items": [
+            {"text": "...", "due": "optional ISO date", "assignee": "optional"}
+          ]
+        }
+      agent_card:
+        description: "Extracts action items from an email."
+        defaultInputModes: ["text"]
+        defaultOutputModes: ["text"]
+        skills:
+          - id: "extract_action_items"
+            name: "Action Item Extraction"
+            description: "Extract structured tasks from an email."
+      agent_card_publishing: { interval_seconds: 10 }
+      agent_discovery: { enabled: false }
+      inter_agent_communication:
+        allow_list: []
+        request_timeout_seconds: 60

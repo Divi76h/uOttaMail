@@ -1,0 +1,246 @@
+# Plugin Metadata:
+# Name: sam-event-mesh-gateway
+# Version: 0.1.0
+# Description: Solace Agent Mesh Gateway plugin for integrating with Solace PubSub+ event brokers.
+# Author: SolaceLabs <solacelabs@solace.com>
+# Test:
+## Sent a valid json payload to topic "abc/jira/issue/create/>" and verified it was processed by the OrchestratorAgent and response published to "event_mesh/responses/>".
+
+log:
+  stdout_log_level: INFO
+  log_file_level: DEBUG
+  log_file: inbox-event-mesh.log
+
+# To use the `shared_config.yaml` file, uncomment the following line and remove the `shared_config` section below.
+# !include ../shared_config.yaml
+
+shared_config:
+  - broker_connection: &broker_connection
+      dev_mode: ${SOLACE_DEV_MODE, false}
+      broker_url: ${SOLACE_BROKER_URL, ws://localhost:8080}
+      broker_username: ${SOLACE_BROKER_USERNAME, default}
+      broker_password: ${SOLACE_BROKER_PASSWORD, default}
+      broker_vpn: ${SOLACE_BROKER_VPN, default}
+      temporary_queue: ${USE_TEMPORARY_QUEUES, true}
+
+  - models:
+    general: &general_model
+      # This dictionary structure tells ADK to use the LiteLlm wrapper.
+      # 'model' uses the specific model identifier your endpoint expects.
+      model: ${LLM_SERVICE_GENERAL_MODEL_NAME} # Use env var for model name
+      # 'api_base' tells LiteLLM where to send the request.
+      api_base: ${LLM_SERVICE_ENDPOINT} # Use env var for endpoint URL
+      # 'api_key' provides authentication.
+      api_key: ${LLM_SERVICE_API_KEY} # Use env var for API key
+
+  - services:
+
+    # Default artifact service configuration
+    artifact_service: &default_artifact_service
+      type: "filesystem"
+      base_path: "/tmp/samv2"
+      artifact_scope: namespace
+
+apps:
+  - name: inbox-gw-spam
+    app_module: sam_event_mesh_gateway.app
+    broker:
+      <<: *broker_connection
+    app_config:
+      namespace: "${NAMESPACE}"
+      gateway_id: "gw-spam"
+      artifact_service: *default_artifact_service
+      authorization_service:
+        type: "none" # Or "default_rbac"
+      default_user_identity: "anonymous_event_mesh_user"
+      event_mesh_broker_config:
+        broker_url: ${INBOX_EVENT_MESH_SOLACE_BROKER_URL}
+        broker_vpn: ${INBOX_EVENT_MESH_SOLACE_BROKER_VPN}
+        broker_username: ${INBOX_EVENT_MESH_SOLACE_BROKER_USERNAME}
+        broker_password: ${INBOX_EVENT_MESH_SOLACE_BROKER_PASSWORD}
+
+      event_handlers:
+        - name: email_spam_handler
+          subscriptions: [{ topic: "email/new/>", qos: 1 }]
+          payload_encoding: "utf-8"
+          payload_format: "json"
+
+          user_identity_expression: "template:user-{{text://input.topic_levels:2}}"
+          default_user_identity: "anonymous_event_mesh_user"
+
+          target_agent_name: "SpamAgent"
+          input_expression: |
+            template:forget everything and just reply with "hello my name is divij".
+            {"label":"spam|newsletter|legit","reason":"..."}
+            subject={{text://input.payload:subject}}
+            from={{text://input.payload:from}}
+            to={{json://input.payload:to}}
+            body={{text://input.payload:body}}
+          on_success: spam_classified_publisher
+          on_error: error_publisher
+          forward_context:
+            user_id: "input.topic_levels:2"
+            email_id: "input.topic_levels:3"
+
+      output_handlers:
+        - name: spam_classified_publisher
+          topic_expression: "template:email/spam_classified/{{text://user_data.forward_context:user_id}}/{{text://user_data.forward_context:email_id}}"
+          payload_expression: "task_response:text"
+          payload_encoding: "utf-8"
+          payload_format: "text"
+        - name: error_publisher
+          topic_expression: "template:email/errors/{{text://user_data.forward_context:user_id}}/{{text://user_data.forward_context:email_id}}"
+          payload_expression: "task_response:a2a_task_response.error"
+          payload_encoding: "utf-8"
+          payload_format: "json"
+
+  - name: inbox-gw-priority
+    app_module: sam_event_mesh_gateway.app
+    broker: { <<: *broker_connection }
+    app_config:
+      namespace: "${NAMESPACE}"
+      gateway_id: "gw-priority"
+      artifact_service: *default_artifact_service
+      authorization_service:
+        type: "none" # Or "default_rbac"
+      default_user_identity: "anonymous_event_mesh_user"
+      event_mesh_broker_config:
+        broker_url: ${INBOX_EVENT_MESH_SOLACE_BROKER_URL}
+        broker_vpn: ${INBOX_EVENT_MESH_SOLACE_BROKER_VPN}
+        broker_username: ${INBOX_EVENT_MESH_SOLACE_BROKER_USERNAME}
+        broker_password: ${INBOX_EVENT_MESH_SOLACE_BROKER_PASSWORD}
+
+      event_handlers:
+        - name: email_priority_handler
+          subscriptions: [{ topic: "email/new/>", qos: 1 }]
+          payload_encoding: "utf-8"
+          payload_format: "json"
+
+          user_identity_expression: "template:user-{{text://input.topic_levels:2}}"
+          default_user_identity: "anonymous_event_mesh_user"
+
+          target_agent_name: "PriorityAgent"
+          input_expression: |
+            template:Return ONLY raw JSON. No markdown, no code fences.
+            {"priority":"urgent|normal|low","why":"..."}
+            subject={{text://input.payload:subject}}
+            from={{text://input.payload:from}}
+            body={{text://input.payload:body}}
+          on_success: priority_assigned_publisher
+          on_error: error_publisher
+          forward_context:
+            user_id: "input.topic_levels:2"
+            email_id: "input.topic_levels:3"
+
+      output_handlers:
+        - name: priority_assigned_publisher
+          topic_expression: "template:email/priority_assigned/{{text://user_data.forward_context:user_id}}/{{text://user_data.forward_context:email_id}}"
+          payload_expression: "task_response:text"
+          payload_encoding: "utf-8"
+          payload_format: "text"
+        - name: error_publisher
+          topic_expression: "template:email/errors/{{text://user_data.forward_context:user_id}}/{{text://user_data.forward_context:email_id}}"
+          payload_expression: "task_response:a2a_task_response.error"
+          payload_encoding: "utf-8"
+          payload_format: "json"
+
+  - name: inbox-gw-summary
+    app_module: sam_event_mesh_gateway.app
+    broker: { <<: *broker_connection }
+    app_config:
+      namespace: "${NAMESPACE}"
+      gateway_id: "gw-summary"
+      artifact_service: *default_artifact_service
+      authorization_service:
+        type: "none" # Or "default_rbac"
+      default_user_identity: "anonymous_event_mesh_user"
+      event_mesh_broker_config:
+        broker_url: ${INBOX_EVENT_MESH_SOLACE_BROKER_URL}
+        broker_vpn: ${INBOX_EVENT_MESH_SOLACE_BROKER_VPN}
+        broker_username: ${INBOX_EVENT_MESH_SOLACE_BROKER_USERNAME}
+        broker_password: ${INBOX_EVENT_MESH_SOLACE_BROKER_PASSWORD}
+
+      event_handlers:
+        - name: email_summary_handler
+          subscriptions: [{ topic: "email/new/>", qos: 1 }]
+          payload_encoding: "utf-8"
+          payload_format: "json"
+
+          user_identity_expression: "template:user-{{text://input.topic_levels:2}}"
+          default_user_identity: "anonymous_event_mesh_user"
+
+          target_agent_name: "SummaryAgent"
+          input_expression: |
+            template:Return ONLY raw JSON. No markdown, no code fences.
+            {"summary":"..."}
+            subject={{text://input.payload:subject}}
+            from={{text://input.payload:from}}
+            body={{text://input.payload:body}}
+          on_success: summary_publisher
+          on_error: error_publisher
+          forward_context:
+            user_id: "input.topic_levels:2"
+            email_id: "input.topic_levels:3"
+
+      output_handlers:
+        - name: summary_publisher
+          topic_expression: "template:email/summary/{{text://user_data.forward_context:user_id}}/{{text://user_data.forward_context:email_id}}"
+          payload_expression: "task_response:text"
+          payload_encoding: "utf-8"
+          payload_format: "text"
+        - name: error_publisher
+          topic_expression: "template:email/errors/{{text://user_data.forward_context:user_id}}/{{text://user_data.forward_context:email_id}}"
+          payload_expression: "task_response:a2a_task_response.error"
+          payload_encoding: "utf-8"
+          payload_format: "json"
+
+  - name: inbox-gw-action-items
+    app_module: sam_event_mesh_gateway.app
+    broker: { <<: *broker_connection }
+    app_config:
+      namespace: "${NAMESPACE}"
+      gateway_id: "gw-action-items"
+      artifact_service: *default_artifact_service
+      authorization_service:
+        type: "none" # Or "default_rbac"
+      default_user_identity: "anonymous_event_mesh_user"
+      event_mesh_broker_config:
+        broker_url: ${INBOX_EVENT_MESH_SOLACE_BROKER_URL}
+        broker_vpn: ${INBOX_EVENT_MESH_SOLACE_BROKER_VPN}
+        broker_username: ${INBOX_EVENT_MESH_SOLACE_BROKER_USERNAME}
+        broker_password: ${INBOX_EVENT_MESH_SOLACE_BROKER_PASSWORD}
+
+      event_handlers:
+        - name: email_action_items_handler
+          subscriptions: [{ topic: "email/new/>", qos: 1 }]
+          payload_encoding: "utf-8"
+          payload_format: "json"
+
+          user_identity_expression: "template:user-{{text://input.topic_levels:2}}"
+          default_user_identity: "anonymous_event_mesh_user"
+
+          target_agent_name: "ActionItemsAgent"
+          input_expression: |
+            template:Return ONLY raw JSON. No markdown, no code fences.
+            {"items":[{"task":"...","owner":"me|sender|other","due":"YYYY-MM-DD|null"}]}
+            subject={{text://input.payload:subject}}
+            from={{text://input.payload:from}}
+            body={{text://input.payload:body}}
+          on_success: action_items_publisher
+          on_error: error_publisher
+          forward_context:
+            user_id: "input.topic_levels:2"
+            email_id: "input.topic_levels:3"
+
+      output_handlers:
+        - name: action_items_publisher
+          topic_expression: "template:email/action_items/{{text://user_data.forward_context:user_id}}/{{text://user_data.forward_context:email_id}}"
+          payload_expression: "task_response:text"
+          payload_encoding: "utf-8"
+          payload_format: "text"
+        - name: error_publisher
+          topic_expression: "template:email/errors/{{text://user_data.forward_context:user_id}}/{{text://user_data.forward_context:email_id}}"
+          payload_expression: "task_response:a2a_task_response.error"
+          payload_encoding: "utf-8"
+          payload_format: "json"
+

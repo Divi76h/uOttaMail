@@ -1,0 +1,6 @@
+# SAM plugins used by this project
+# NOTE: `sam-event-mesh-gateway` is a SAM *plugin* (installed via `sam plugin add ...`),
+# not a pip-installable package.
+
+# If you ever want to run SAM outside the prebuilt Docker image, uncomment:
+# solace-agent-mesh
