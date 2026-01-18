@@ -17,6 +17,7 @@ EVENT_TYPE_MAP = {
     "summary": "email.summary",
     "action_items": "email.action_items",
     "tone_analyzed": "email.tone_analyzed",
+    "url_scanned": "email.url_scanned",
 }
 
 
@@ -144,7 +145,7 @@ class Command(BaseCommand):
         def on_connect(c, userdata, flags, rc, properties=None):
             self.stdout.write(self.style.SUCCESS(f"Connected to MQTT broker rc={rc}"))
             # Subscribe to all processed events
-            for ev in ["spam_classified", "priority_assigned", "summary", "action_items", "tone_analyzed"]:
+            for ev in ["spam_classified", "priority_assigned", "summary", "action_items", "tone_analyzed", "url_scanned"]:
                 topic = f"{prefix}/{ev}/#"
                 c.subscribe(topic, qos=0)
                 print(f"[SUBSCRIBE] Subscribed to: {topic}")
@@ -220,6 +221,36 @@ class Command(BaseCommand):
                 email.tone_confidence = payload.get("confidence")
                 email.tone_explanation = payload.get("explanation") or payload.get("brief_explanation")
                 print(f"[TONE DEBUG] Extracted: emotion={email.tone_emotion}, confidence={email.tone_confidence}")
+            elif ev == "url_scanned":
+                # Handle case where payload is {'raw': '```json...```'}
+                if isinstance(payload, dict) and "raw" in payload:
+                    raw_text = payload["raw"]
+                    payload = _try_parse_json_from_text(raw_text)
+                    # If still got raw back, try regex extraction for truncated JSON
+                    if isinstance(payload, dict) and "raw" in payload:
+                        import re
+                        text = payload["raw"]
+                        # Extract verdict
+                        match = re.search(r'"verdict"\s*:\s*"([^"]+)"', text)
+                        if match:
+                            payload["verdict"] = match.group(1)
+                        # Extract threat_level
+                        match = re.search(r'"threat_level"\s*:\s*"([^"]+)"', text)
+                        if match:
+                            payload["threat_level"] = match.group(1)
+                        # Extract counts
+                        match = re.search(r'"malicious_count"\s*:\s*(\d+)', text)
+                        if match:
+                            payload["malicious_count"] = int(match.group(1))
+                        match = re.search(r'"suspicious_count"\s*:\s*(\d+)', text)
+                        if match:
+                            payload["suspicious_count"] = int(match.group(1))
+                email.url_scan_verdict = payload.get("verdict")
+                email.url_scan_threat_level = payload.get("threat_level")
+                email.url_scan_malicious_count = payload.get("malicious_count")
+                email.url_scan_suspicious_count = payload.get("suspicious_count")
+                email.url_scan_summary = payload.get("summary")
+                email.url_scan_details = payload.get("details")
 
             email.save()
 

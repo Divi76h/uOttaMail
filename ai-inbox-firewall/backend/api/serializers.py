@@ -41,6 +41,12 @@ class EmailSerializer(serializers.ModelSerializer):
             'tone_emotion',
             'tone_confidence',
             'tone_explanation',
+            'url_scan_verdict',
+            'url_scan_threat_level',
+            'url_scan_malicious_count',
+            'url_scan_suspicious_count',
+            'url_scan_summary',
+            'url_scan_details',
         ]
 
     def get_sender_username(self, obj: Email):

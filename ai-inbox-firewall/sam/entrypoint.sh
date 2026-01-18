@@ -43,4 +43,5 @@ exec "$SAM_CLI" run \
   configs/agents/summary_agent.yaml \
   configs/agents/action_items_agent.yaml \
   configs/agents/email_tone_analyzer.yaml \
+  configs/agents/url-scanner.yaml \
   configs/gateways/inbox-event-mesh.yaml

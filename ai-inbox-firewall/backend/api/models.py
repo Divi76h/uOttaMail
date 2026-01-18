@@ -39,6 +39,14 @@ class Email(models.Model):
     tone_confidence = models.CharField(max_length=16, null=True, blank=True)
     tone_explanation = models.TextField(null=True, blank=True)
 
+    # URL security scan
+    url_scan_verdict = models.CharField(max_length=16, null=True, blank=True)  # SAFE, SUSPICIOUS, DANGEROUS
+    url_scan_threat_level = models.CharField(max_length=16, null=True, blank=True)  # LOW, MEDIUM, HIGH
+    url_scan_malicious_count = models.IntegerField(null=True, blank=True)
+    url_scan_suspicious_count = models.IntegerField(null=True, blank=True)
+    url_scan_summary = models.TextField(null=True, blank=True)
+    url_scan_details = models.TextField(null=True, blank=True)
+
     def __str__(self) -> str:
         return f"{self.id} | {self.subject}"
 
@@ -51,6 +59,7 @@ class EmailEvent(models.Model):
         ('email.summary', 'Summary'),
         ('email.action_items', 'Action Items'),
         ('email.tone_analyzed', 'Tone Analyzed'),
+        ('email.url_scanned', 'URL Scanned'),
     ]
 
     email = models.ForeignKey(Email, on_delete=models.CASCADE, related_name='events')

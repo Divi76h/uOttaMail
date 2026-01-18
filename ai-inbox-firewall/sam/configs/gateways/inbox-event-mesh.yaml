@@ -294,3 +294,53 @@ apps:
           payload_encoding: "utf-8"
           payload_format: "json"
 
+  - name: inbox-gw-url
+    app_module: sam_event_mesh_gateway.app
+    broker: { <<: *broker_connection }
+    app_config:
+      namespace: "${NAMESPACE}"
+      gateway_id: "gw-url"
+      artifact_service: *default_artifact_service
+      authorization_service:
+        type: "none"
+      default_user_identity: "anonymous_event_mesh_user"
+      event_mesh_broker_config:
+        broker_url: ${INBOX_EVENT_MESH_SOLACE_BROKER_URL}
+        broker_vpn: ${INBOX_EVENT_MESH_SOLACE_BROKER_VPN}
+        broker_username: ${INBOX_EVENT_MESH_SOLACE_BROKER_USERNAME}
+        broker_password: ${INBOX_EVENT_MESH_SOLACE_BROKER_PASSWORD}
+
+      event_handlers:
+        - name: email_url_handler
+          subscriptions: [{ topic: "email/new/>", qos: 1 }]
+          payload_encoding: "utf-8"
+          payload_format: "json"
+
+          user_identity_expression: "template:user-{{text://input.topic_levels:2}}"
+          default_user_identity: "anonymous_event_mesh_user"
+
+          target_agent_name: "URLScanner"
+          input_expression: |
+            template:Return ONLY raw JSON. No markdown, no code fences.
+            {"verdict":"SAFE|SUSPICIOUS|DANGEROUS","threat_level":"LOW|MEDIUM|HIGH","malicious_count":0,"suspicious_count":0,"total_engines":0,"urls_scanned":0,"summary":"...","details":"...","virustotal_link":"..."}
+            subject={{text://input.payload:subject}}
+            from={{text://input.payload:from}}
+            body={{text://input.payload:body}}
+          on_success: url_scanned_publisher
+          on_error: error_publisher
+          forward_context:
+            user_id: "input.topic_levels:2"
+            email_id: "input.topic_levels:3"
+
+      output_handlers:
+        - name: url_scanned_publisher
+          topic_expression: "template:email/url_scanned/{{text://user_data.forward_context:user_id}}/{{text://user_data.forward_context:email_id}}"
+          payload_expression: "task_response:text"
+          payload_encoding: "utf-8"
+          payload_format: "text"
+        - name: error_publisher
+          topic_expression: "template:email/errors/{{text://user_data.forward_context:user_id}}/{{text://user_data.forward_context:email_id}}"
+          payload_expression: "task_response:a2a_task_response.error"
+          payload_encoding: "utf-8"
+          payload_format: "json"
+

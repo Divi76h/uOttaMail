@@ -27,17 +27,25 @@ export default function App() {
   const [token, setToken] = useState(localStorage.getItem('jwt') || '')
 
   const [emails, setEmails] = useState([])
-  const [selected, setSelected] = useState(null)
+  const [selectedId, setSelectedId] = useState(null)
 
   const [toUser, setToUser] = useState('')
   const [subject, setSubject] = useState('')
   const [body, setBody] = useState('')
 
+  // Derive selected email from ID
+  const selected = useMemo(() => 
+    selectedId ? emails.find(e => e.id === selectedId) : null,
+    [selectedId, emails]
+  )
+
   const authed = useMemo(() => ({
     token,
     refreshEmails: async () => {
       const res = await authedApi(token, '/emails/')
-      if (res.ok) setEmails(await res.json())
+      if (res.ok) {
+        setEmails(await res.json())
+      }
     }
   }), [token])
 
@@ -57,6 +65,7 @@ export default function App() {
     es.addEventListener('email.summary', () => authed.refreshEmails())
     es.addEventListener('email.action_items', () => authed.refreshEmails())
     es.addEventListener('email.tone_analyzed', () => authed.refreshEmails())
+    es.addEventListener('email.url_scanned', () => authed.refreshEmails())
 
     return () => es.close()
   }, [token])
@@ -156,7 +165,7 @@ export default function App() {
         {emails.map((e) => (
           <div
             key={e.id}
-            onClick={() => setSelected(e)}
+            onClick={() => setSelectedId(e.id)}
             style={{
               padding: 10,
               marginBottom: 8,
@@ -196,6 +205,15 @@ export default function App() {
             <pre style={{ whiteSpace: 'pre-wrap' }}>{selected.action_items ? JSON.stringify(selected.action_items, null, 2) : '...'}</pre>
             <p><b>Tone</b>: {selected.tone_emotion || '...'} {selected.tone_confidence ? `(${selected.tone_confidence})` : ''}</p>
             {selected.tone_explanation && <p style={{ fontStyle: 'italic', opacity: 0.8 }}>{selected.tone_explanation}</p>}
+            
+            <p><b>URL Security</b>: {selected.url_scan_verdict || '...'} {selected.url_scan_threat_level ? `(${selected.url_scan_threat_level})` : ''}</p>
+            {selected.url_scan_summary && <p style={{ opacity: 0.8 }}>{selected.url_scan_summary}</p>}
+            {selected.url_scan_details && <p style={{ fontStyle: 'italic', opacity: 0.8 }}>{selected.url_scan_details}</p>}
+            {(selected.url_scan_malicious_count > 0 || selected.url_scan_suspicious_count > 0) && (
+              <p style={{ color: selected.url_scan_malicious_count > 0 ? '#d32f2f' : '#ff9800', fontWeight: 600 }}>
+                ⚠️ {selected.url_scan_malicious_count || 0} malicious, {selected.url_scan_suspicious_count || 0} suspicious
+              </p>
+            )}
 
             <button onClick={authed.refreshEmails}>Refresh</button>
           </div>
